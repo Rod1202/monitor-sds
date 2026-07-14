@@ -1,5 +1,33 @@
 import { createClient } from '@supabase/supabase-js'
 
+interface DashboardSnapshotRow {
+  total_clients: number
+  active_clients: number
+  expired_clients: number
+  total_devices: number
+  online_pct: number
+  offline_pct: number
+  coverage_clients: number
+  discovered_30d: number
+  no_contact_24h: number
+  no_contact_7d: number
+  never_contacted: number
+  duplicate_serials: number
+}
+
+function computeComparison<K extends keyof DashboardSnapshotRow>(
+  currentValue: number,
+  _prevValue: number | undefined | null,
+  mapField: K,
+  prev?: DashboardSnapshotRow | null,
+): { previousValue: number; change: number; changePct: number | null } {
+  const previous = prev ? prev[mapField] : undefined
+  const pv = typeof previous === 'number' ? previous : 0
+  const change = currentValue - pv
+  const changePct = pv !== 0 ? Math.round((change / pv) * 100) : null
+  return { previousValue: pv, change, changePct }
+}
+
 interface SDSCustomer {
   customerId: number
   name: string
@@ -91,7 +119,7 @@ export default async (req: Request) => {
     if (view === 'customers') return handleCustomers(token)
     if (view === 'customer-details') return handleCustomerDetails(token)
     if (view === 'customer-summary') return handleCustomerSummary(token, url)
-    return handleStatus(token)
+    return handleStatus(token, supabase)
   } catch (err) {
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : 'Unknown error' }),
@@ -100,12 +128,19 @@ export default async (req: Request) => {
   }
 }
 
-async function handleStatus(token: string) {
+async function handleStatus(token: string, supabase: ReturnType<any>) {
   const customers = await fetchAllCustomers(token)
 
   const activeCustomers = customers.filter(c => c.status === 'ACTIVE')
   const expiredCustomers = customers.filter(c => c.status === 'EXPIRED')
   const totalClients = customers.length
+
+  const { data: prevSnapshot } = await supabase
+    .from('dashboard_snapshots')
+    .select('*')
+    .order('snapshot_date', { ascending: false })
+    .limit(1)
+    .maybeSingle() as { data: DashboardSnapshotRow | null }
 
   const deviceResults = await Promise.allSettled(
     activeCustomers.map(c => fetchDevices(token, c.customerId)),
@@ -275,6 +310,16 @@ async function handleStatus(token: string) {
         offlinePct,
         coverageClients,
         discoveredLast30d,
+      },
+      comparison: {
+        totalClients: computeComparison(totalClients, prevSnapshot?.total_clients, 'total_clients', prevSnapshot),
+        activeClients: computeComparison(activeCustomers.length, prevSnapshot?.active_clients, 'active_clients', prevSnapshot),
+        expiredClients: computeComparison(expiredCustomers.length, prevSnapshot?.expired_clients, 'expired_clients', prevSnapshot),
+        totalDevices: computeComparison(totalDevices, prevSnapshot?.total_devices, 'total_devices', prevSnapshot),
+        onlinePct: computeComparison(onlinePct, prevSnapshot?.online_pct, 'online_pct', prevSnapshot),
+        offlinePct: computeComparison(offlinePct, prevSnapshot?.offline_pct, 'offline_pct', prevSnapshot),
+        coverageClients: computeComparison(coverageClients, prevSnapshot?.coverage_clients, 'coverage_clients', prevSnapshot),
+        discoveredLast30d: computeComparison(discoveredLast30d, prevSnapshot?.discovered_30d, 'discovered_30d', prevSnapshot),
       },
       charts: {
         discoveredWeekly,
@@ -572,6 +617,20 @@ async function handleAlerts(token: string, supabase: ReturnType<any>) {
   }
   const duplicateSerials = [...serialGroups.values()].filter(g => g.length > 1).flat()
 
+  const { data: prevSnapshot } = await supabase
+    .from('dashboard_snapshots')
+    .select('*')
+    .order('snapshot_date', { ascending: false })
+    .limit(1)
+    .maybeSingle() as { data: DashboardSnapshotRow | null }
+
+  const alertCards = {
+    noContact24h: noContact24h.length,
+    noContact7d: noContact7d.length,
+    neverContacted: neverContacted.length,
+    duplicateSerials: duplicateSerials.length,
+  }
+
   function toName(customerId: number): string {
     return customers.find(c => c.customerId === customerId)?.name ?? `ID ${customerId}`
   }
@@ -585,10 +644,13 @@ async function handleAlerts(token: string, supabase: ReturnType<any>) {
   return new Response(
     JSON.stringify({
       alertCards: {
-        noContact24h: noContact24h.length,
-        noContact7d: noContact7d.length,
-        neverContacted: neverContacted.length,
-        duplicateSerials: duplicateSerials.length,
+        ...alertCards,
+        comparison: {
+          noContact24h: computeComparison(alertCards.noContact24h, prevSnapshot?.no_contact_24h, 'no_contact_24h', prevSnapshot),
+          noContact7d: computeComparison(alertCards.noContact7d, prevSnapshot?.no_contact_7d, 'no_contact_7d', prevSnapshot),
+          neverContacted: computeComparison(alertCards.neverContacted, prevSnapshot?.never_contacted, 'never_contacted', prevSnapshot),
+          duplicateSerials: computeComparison(alertCards.duplicateSerials, prevSnapshot?.duplicate_serials, 'duplicate_serials', prevSnapshot),
+        },
       },
       tables: {
         noContact24h: noContact24h.slice(0, 100).map(d => ({

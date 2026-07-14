@@ -1,3 +1,4 @@
+
 # PROMPT — Dashboard "Monitor SDS" (Material Design)
 
 Genera el diseño de un dashboard web estilo **Material Design**, moderno, limpio y profesional, para una plataforma de monitoreo de impresoras/equipos llamada **Monitor SDS** de la empresa **Misión Tecnológica**.
@@ -106,6 +107,7 @@ Estilo similar a las cards de Estatus, pero con acentos en colores de alerta (ro
 ### Fila 2 — Timeline Horizontal de Salud del Parque
 
 Componente tipo **timeline horizontal** con línea base y puntos/nodos cronológicos, cada nodo con:
+
 - Ícono según tipo de evento (sincronización perdida, recuperación, sin contacto, duplicado, descubrimiento)
 - Color codificado (verde = positivo, rojo = crítico, ámbar = advertencia)
 - Tooltip/etiqueta con el detalle del evento y fecha

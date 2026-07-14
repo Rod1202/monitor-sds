@@ -63,6 +63,16 @@ export interface StatusResponse {
   kpis: KPIs;
   charts: Charts;
   extras: Extras;
+  comparison: {
+    totalClients: KpiComparison;
+    activeClients: KpiComparison;
+    expiredClients: KpiComparison;
+    totalDevices: KpiComparison;
+    onlinePct: KpiComparison;
+    offlinePct: KpiComparison;
+    coverageClients: KpiComparison;
+    discoveredLast30d: KpiComparison;
+  };
 }
 
 export interface AlertDeviceRow {
@@ -152,8 +162,27 @@ export interface CustomerSummaryResponse {
   }[];
 }
 
+export interface KpiComparison {
+  previousValue: number;
+  change: number;
+  changePct: number | null;
+}
+
+export interface AlertCardsWithComparison {
+  noContact24h: number;
+  noContact7d: number;
+  neverContacted: number;
+  duplicateSerials: number;
+  comparison: {
+    noContact24h: KpiComparison;
+    noContact7d: KpiComparison;
+    neverContacted: KpiComparison;
+    duplicateSerials: KpiComparison;
+  };
+}
+
 export interface AlertsResponse {
-  alertCards: AlertCards;
+  alertCards: AlertCardsWithComparison;
   tables: AlertTables;
   timeline: TimelineEntry[];
 }

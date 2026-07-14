@@ -74,7 +74,13 @@ export default function EstatusView() {
     );
   }
 
-  const { kpis, charts, extras } = data!;
+  const { kpis, charts, extras, comparison } = data!;
+
+  function fmtSubtitle(cmp: { change: number; changePct: number | null }): string | undefined {
+    if (cmp.changePct === null) return '— sin referencia';
+    const arrow = cmp.change < 0 ? '↘' : '↗';
+    return `${arrow} ${Math.abs(cmp.changePct)}% vs snapshot anterior`;
+  }
 
   const donutSegments = charts.monitorStatus.map((s: NamedValue) => {
     const color = s.name === 'Online' ? '#2E7D32' : s.name === 'Offline' ? '#D32F2F' : '#727687';
@@ -97,28 +103,28 @@ export default function EstatusView() {
     <Grid container spacing={2}>
       {/* Row 1: KPI Cards */}
       <Grid size={{ xs: 12, sm: 6, md: 3, lg: 1.5 }}>
-        <KpiCard label="Total Clientes" value={kpis.totalClients.toLocaleString()} icon={<People />} iconBgColor="#0066FF" onClick={() => openDialog('total')} />
+        <KpiCard label="Total Clientes" value={kpis.totalClients.toLocaleString()} icon={<People />} iconBgColor="#0066FF" subtitle={fmtSubtitle(comparison.totalClients)} onClick={() => openDialog('total')} />
       </Grid>
       <Grid size={{ xs: 12, sm: 6, md: 3, lg: 1.5 }}>
-        <KpiCard label="Clientes Activos" value={kpis.activeClients.toLocaleString()} icon={<PeopleAlt />} iconBgColor="#2E7D32" chip={{ label: 'Activo', color: 'success' }} onClick={() => openDialog('active')} />
+        <KpiCard label="Clientes Activos" value={kpis.activeClients.toLocaleString()} icon={<PeopleAlt />} iconBgColor="#2E7D32" chip={{ label: 'Activo', color: 'success' }} subtitle={fmtSubtitle(comparison.activeClients)} onClick={() => openDialog('active')} />
       </Grid>
       <Grid size={{ xs: 12, sm: 6, md: 3, lg: 1.5 }}>
-        <KpiCard label="Expirados" value={kpis.expiredClients.toLocaleString()} icon={<PersonOff />} iconBgColor="#D32F2F" chip={{ label: 'Red', color: 'error' }} onClick={() => openDialog('expired')} />
+        <KpiCard label="Expirados" value={kpis.expiredClients.toLocaleString()} icon={<PersonOff />} iconBgColor="#D32F2F" chip={{ label: 'Red', color: 'error' }} subtitle={fmtSubtitle(comparison.expiredClients)} onClick={() => openDialog('expired')} />
       </Grid>
       <Grid size={{ xs: 12, sm: 6, md: 3, lg: 1.5 }}>
-        <KpiCard label="Total Equipos" value={kpis.totalDevices.toLocaleString()} icon={<Print />} iconBgColor="#0066FF" />
+        <KpiCard label="Total Equipos" value={kpis.totalDevices.toLocaleString()} icon={<Print />} iconBgColor="#0066FF" subtitle={fmtSubtitle(comparison.totalDevices)} />
       </Grid>
       <Grid size={{ xs: 12, sm: 6, md: 3, lg: 1.5 }}>
-        <KpiCard label="Sincronizado" value={`${kpis.onlinePct}%`} icon={<SyncAlt />} iconBgColor="#2E7D32" progress={{ value: kpis.onlinePct, color: 'success' }} />
+        <KpiCard label="Sincronizado" value={`${kpis.onlinePct}%`} icon={<SyncAlt />} iconBgColor="#2E7D32" progress={{ value: kpis.onlinePct, color: 'success' }} subtitle={fmtSubtitle(comparison.onlinePct)} />
       </Grid>
       <Grid size={{ xs: 12, sm: 6, md: 3, lg: 1.5 }}>
-        <KpiCard label="Offline" value={`${kpis.offlinePct}%`} icon={<WifiOff />} iconBgColor="#D32F2F" progress={{ value: kpis.offlinePct, color: 'error' }} onClick={() => openDialog('offline')} />
+        <KpiCard label="Offline" value={`${kpis.offlinePct}%`} icon={<WifiOff />} iconBgColor="#D32F2F" progress={{ value: kpis.offlinePct, color: 'error' }} subtitle={fmtSubtitle(comparison.offlinePct)} onClick={() => openDialog('offline')} />
       </Grid>
       <Grid size={{ xs: 12, sm: 6, md: 3, lg: 1.5 }}>
-        <KpiCard label="Coberturados" value={`${kpis.coverageClients}`} icon={<Sensors />} iconBgColor="#0288D1" onClick={() => openDialog('uncovered')} />
+        <KpiCard label="Coberturados" value={`${kpis.coverageClients}`} icon={<Sensors />} iconBgColor="#0288D1" subtitle={fmtSubtitle(comparison.coverageClients)} onClick={() => openDialog('uncovered')} />
       </Grid>
       <Grid size={{ xs: 12, sm: 6, md: 3, lg: 1.5 }}>
-        <KpiCard label="Descubiertos (30d)" value={`+${kpis.discoveredLast30d}`} icon={<FiberNew />} iconBgColor="#F9A825" trend="up" onClick={() => openDialog('new')} />
+        <KpiCard label="Descubiertos (30d)" value={`+${kpis.discoveredLast30d}`} icon={<FiberNew />} iconBgColor="#F9A825" trend="up" subtitle={fmtSubtitle(comparison.discoveredLast30d)} onClick={() => openDialog('new')} />
       </Grid>
 
       {/* Row 2: Unified Line Chart with tabs */}

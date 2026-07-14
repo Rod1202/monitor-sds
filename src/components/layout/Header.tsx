@@ -1,6 +1,6 @@
-import { useMemo } from 'react';
-import { AppBar, Toolbar, TextField, InputAdornment, Tabs, Tab, Box, Autocomplete } from '@mui/material';
-import { Search } from '@mui/icons-material';
+import { useState, useMemo, useCallback } from 'react';
+import { AppBar, Toolbar, TextField, InputAdornment, Tabs, Tab, Box, Autocomplete, IconButton, Tooltip, Snackbar, Alert, CircularProgress } from '@mui/material';
+import { Search, Sync } from '@mui/icons-material';
 import { useCustomerSearch } from '../../hooks/useCustomerSearch';
 
 interface HeaderProps {
@@ -13,6 +13,23 @@ interface HeaderProps {
 export default function Header({ tabValue, onTabChange, onCustomerSelect, searchKey }: HeaderProps) {
   const { customers, loading } = useCustomerSearch();
   const activeCustomers = useMemo(() => customers.filter(c => c.status === 'ACTIVE'), [customers]);
+
+  const [syncing, setSyncing] = useState(false);
+  const [snackbar, setSnackbar] = useState<{ open: boolean; severity: 'success' | 'error'; message: string }>({ open: false, severity: 'success', message: '' });
+
+  const handleSync = useCallback(async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch('/.netlify/functions/sync-snapshot', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Error al sincronizar');
+      setSnackbar({ open: true, severity: 'success', message: `Sync completado — ${data.snapshotsInserted} dispositivos guardados` });
+    } catch (err) {
+      setSnackbar({ open: true, severity: 'error', message: err instanceof Error ? err.message : 'Error de red' });
+    } finally {
+      setSyncing(false);
+    }
+  }, []);
 
   return (
     <AppBar
@@ -110,7 +127,24 @@ export default function Header({ tabValue, onTabChange, onCustomerSelect, search
           <Tab label="Estatus" />
           <Tab label="Alertas" />
         </Tabs>
+
+        <Tooltip title="Forzar sincronización ahora">
+          <IconButton onClick={handleSync} disabled={syncing} size="small">
+            {syncing ? <CircularProgress size={20} /> : <Sync />}
+          </IconButton>
+        </Tooltip>
       </Toolbar>
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar(s => ({ ...s, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity={snackbar.severity} variant="filled" sx={{ width: '100%' }}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </AppBar>
   );
 }

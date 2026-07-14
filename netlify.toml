@@ -11,4 +11,4 @@
 
 [[scheduled.functions]]
   path = "sync-snapshot"
-  schedule = "0 * * * *"
+  schedule = "0 0 */4 * *"

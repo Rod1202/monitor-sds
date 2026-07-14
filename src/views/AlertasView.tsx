@@ -102,11 +102,20 @@ export default function AlertasView() {
 
   const { alertCards, tables } = data!;
 
+  function formatComparison(change: number, changePct: number | null): string | undefined {
+    if (changePct === null) return '— sin referencia';
+    const arrow = change < 0 ? '↘' : '↗';
+    const absPct = Math.abs(changePct);
+    return `${arrow} ${absPct}% vs snapshot anterior`;
+  }
+
   return (
     <Grid container spacing={2}>
       {/* KPI Cards */}
       {alertKpiConfig.map((kpi) => {
         const value = alertCards[kpi.key];
+        const comp = alertCards.comparison[kpi.key];
+        const subtitle = formatComparison(comp.change, comp.changePct);
         return (
           <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 3 }}>
             <KpiCard
@@ -116,6 +125,7 @@ export default function AlertasView() {
               iconBgColor={kpi.iconBgColor}
               iconColor={kpi.iconColor}
               chip={{ label: kpi.chipLabel, color: kpi.chipColor }}
+              subtitle={subtitle}
             />
           </Grid>
         );

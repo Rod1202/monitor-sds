@@ -39,31 +39,36 @@ async function getSdsToken(apiKey: string, apiSecret: string): Promise<string> {
   return data.access_token;
 }
 
-export default async () => {
+interface SDSDeviceWithStatus extends DeviceRestDTO {
+  connectivity: 'Online' | 'Offline' | 'Unknown';
+}
+
+const syncSnapshots = async () => {
   const supabaseUrl = process.env.SUPABASE_URL || '';
   const supabaseKey = process.env.SUPABASE_SERVICE_KEY || '';
   const sdsApiKey = process.env.SDS_API_KEY || '';
   const sdsApiSecret = process.env.SDS_API_SECRET || '';
 
   if (!supabaseUrl || !supabaseKey || !sdsApiKey || !sdsApiSecret) {
-    return new Response(
-      JSON.stringify({ error: 'Missing env vars' }),
-      { status: 500, headers: { 'content-type': 'application/json' } },
-    );
+    return { statusCode: 500, body: JSON.stringify({ error: 'Missing env vars' }), headers: { 'content-type': 'application/json' } };
   }
 
   try {
     const supabase = createClient(supabaseUrl, supabaseKey);
     const token = await getSdsToken(sdsApiKey, sdsApiSecret);
 
-    const customersRes = await fetch('https://hp-sds-latam.insightportal.net/PortalAPI/api/customers?status=ACTIVE', {
+    // 1. Traer TODOS los clientes (ACTIVE + EXPIRED)
+    const allCustomersRes = await fetch('https://hp-sds-latam.insightportal.net/PortalAPI/api/customers', {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!customersRes.ok) throw new Error(`Failed to fetch customers: ${customersRes.statusText}`);
-    const customers: CustomerRestDTO[] = await customersRes.json() as CustomerRestDTO[];
+    if (!allCustomersRes.ok) throw new Error(`Failed to fetch customers: ${allCustomersRes.statusText}`);
+    const allCustomers: CustomerRestDTO[] = await allCustomersRes.json() as CustomerRestDTO[];
+
+    const activeCustomers = allCustomers.filter(c => c.status === 'ACTIVE');
+    const expiredCustomers = allCustomers.filter(c => c.status === 'EXPIRED');
 
     const today = new Date().toISOString().split('T')[0];
-    const snapshots: Array<{
+    const deviceSnapshots: Array<{
       customer_name: string;
       customer_id: number;
       device_id: number;
@@ -71,12 +76,11 @@ export default async () => {
       last_contact: string | null;
       snapshot_date: string;
       estado: string;
-      estado_conectividad: string;
-      manufacturer: string | null;
-      model: string | null;
     }> = [];
 
-    for (const customer of customers) {
+    const allActiveDevices: SDSDeviceWithStatus[] = [];
+
+    for (const customer of activeCustomers) {
       const devicesRes = await fetch(
         `https://hp-sds-latam.insightportal.net/PortalAPI/api/devices?customerId=${customer.customerId}&includeExtendedFields=true`,
         { headers: { Authorization: `Bearer ${token}` } },
@@ -88,35 +92,89 @@ export default async () => {
       const devices: DeviceRestDTO[] = await devicesRes.json() as DeviceRestDTO[];
 
       for (const device of devices) {
-        const estado = computeConnectivity(device.lastContact);
-        snapshots.push({
+        const connectivity = computeConnectivity(device.lastContact);
+        allActiveDevices.push({ ...device, connectivity });
+        deviceSnapshots.push({
           customer_name: customer.name,
           customer_id: customer.customerId,
           device_id: device.deviceId,
           serial_number: device.serialNumber || null,
           last_contact: device.lastContact || null,
           snapshot_date: today,
-          estado: estado === 'Online' ? 'Sincronizado' : 'Desincronizado',
-          estado_conectividad: estado,
-          manufacturer: device.extendedFields?.manufacturer || null,
-          model: device.extendedFields?.model || null,
+          estado: connectivity === 'Online' ? 'Sincronizado' : 'Desincronizado',
         });
       }
     }
 
-    if (snapshots.length > 0) {
-      const { error } = await supabase.from('device_sync_snapshots').insert(snapshots);
+    // 2. Insertar snapshots de dispositivos
+    if (deviceSnapshots.length > 0) {
+      const { error } = await supabase.from('device_sync_snapshots').insert(deviceSnapshots);
       if (error) throw new Error(`Supabase insert error: ${error.message}`);
     }
 
-    return new Response(
-      JSON.stringify({ message: 'Sync completed', customersProcessed: customers.length, snapshotsInserted: snapshots.length }),
-      { headers: { 'content-type': 'application/json' } },
-    );
+    // 3. Calcular KPIs agregados
+    const totalDevices = allActiveDevices.length;
+    const online = allActiveDevices.filter(d => d.connectivity === 'Online').length;
+    const offline = allActiveDevices.filter(d => d.connectivity === 'Offline').length;
+    const onlinePct = totalDevices ? Math.round((online / totalDevices) * 100) : 0;
+    const offlinePct = totalDevices ? Math.round((offline / totalDevices) * 100) : 0;
+
+    const thirtyDaysAgo = Date.now() - 30 * 86_400_000;
+    const discovered30d = allActiveDevices.filter(d => d.discoveryDate && new Date(d.discoveryDate).getTime() >= thirtyDaysAgo).length;
+
+    const coverageClients = activeCustomers.filter(c => allActiveDevices.some(d => d.customerId === c.customerId && d.lastContact)).length;
+
+    const now = new Date();
+    const oneDayAgo = new Date(now.getTime() - 24 * 3_600_000);
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 86_400_000);
+
+    const noContact24h = allActiveDevices.filter(d => d.lastContact && new Date(d.lastContact) < oneDayAgo).length;
+    const noContact7d = allActiveDevices.filter(d => d.lastContact && new Date(d.lastContact) < sevenDaysAgo).length;
+    const neverContacted = allActiveDevices.filter(d => !d.lastContact).length;
+
+    const serialGroups = new Map<string, typeof allActiveDevices>();
+    for (const d of allActiveDevices) {
+      if (!d.serialNumber) continue;
+      const group = serialGroups.get(d.serialNumber) ?? [];
+      group.push(d);
+      serialGroups.set(d.serialNumber, group);
+    }
+    const duplicateSerials = [...serialGroups.values()].filter(g => g.length > 1).reduce((sum, g) => sum + g.length, 0);
+
+    // 4. Insertar snapshot de KPIs agregados
+    const { error: kpiError } = await supabase.from('dashboard_snapshots').insert({
+      snapshot_date: today,
+      total_clients: allCustomers.length,
+      active_clients: activeCustomers.length,
+      expired_clients: expiredCustomers.length,
+      total_devices: totalDevices,
+      online_pct: onlinePct,
+      offline_pct: offlinePct,
+      coverage_clients: coverageClients,
+      discovered_30d: discovered30d,
+      no_contact_24h: noContact24h,
+      no_contact_7d: noContact7d,
+      never_contacted: neverContacted,
+      duplicate_serials: duplicateSerials,
+    });
+    if (kpiError) throw new Error(`Supabase KPI insert error: ${kpiError.message}`);
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        message: 'Sync completed',
+        snapshotsInserted: deviceSnapshots.length,
+        kpisSaved: true,
+      }),
+      headers: { 'content-type': 'application/json' },
+    };
   } catch (err) {
-    return new Response(
-      JSON.stringify({ error: err instanceof Error ? err.message : 'Unknown error' }),
-      { status: 500, headers: { 'content-type': 'application/json' } },
-    );
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: err instanceof Error ? err.message : 'Unknown error' }),
+      headers: { 'content-type': 'application/json' },
+    };
   }
 };
+
+export const handler = syncSnapshots;
